@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Reflex Tiles — Game 3 (Survival)</title>
+<style>
+  html,body{height:100%;margin:0;background:linear-gradient(180deg,#061226 0%,#02111c 100%);font-family:Inter,ui-sans-serif,system-ui,Arial;color:#dfefff}
+  #container{display:flex;height:100%;width:100%;}
+  #sidebar{width:260px;padding:20px;background:rgba(10,20,40,0.6);box-shadow:inset -1px 0 0 rgba(255,255,255,0.05);}
+  #sidebar h2{color:#bfe8ff;font-size:18px;margin-top:0}
+  #sidebar p{font-size:13px;line-height:1.5;color:#9fb8d9}
+  #game{flex:1;display:flex;align-items:center;justify-content:center;}
+  canvas{border-radius:12px;box-shadow:0 0 40px rgba(0,80,160,0.3);}
+</style>
+</head>
+<body>
+<div id="container">
+  <div id="sidebar">
+    <h2>Reflex Tiles: Survival</h2>
+    <p><strong>Keys:</strong> D, F, J, K</p>
+    <p>Press when the tile lights up.<br>Each correct hit gives points, misses remove points.<br>If your score drops below 0 → Game Over.</p>
+    <p>Speed increases over time. Try to survive as long as possible!</p>
+    <p>Press <strong>R</strong> to restart anytime.</p>
+  </div>
+  <div id="game"><canvas id="c" width="850" height="600"></canvas></div>
+</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const cols = 4;
+const keys = ['KeyD','KeyF','KeyJ','KeyK'];
+let columnWidth = canvas.width / cols;
+let lanePadding = 18;
+let rounds = [];
+let lastSpawn = 0;
+let spawnInterval = 1200;
+let score = 0, combo = 0, maxCombo = 0, gameOver = false;
+let startTime = performance.now();
+let feedback = [];
+
+function spawn(){
+  let available = [0,1,2,3].filter(c => {
+    const latest = rounds.find(r => !r.hit && r.col===c);
+    return !latest;
+  });
+  if(available.length===0) return;
+  const col = available[Math.floor(Math.random()*available.length)];
+  const now = performance.now();
+  const deadline = now + spawnInterval*0.9;
+  rounds.push({col,spawn:now,deadline,hit:false});
+}
+
+function handleInput(code){
+  if(gameOver) return;
+  const idx = keys.indexOf(code);
+  if(idx===-1) return;
+  const now = performance.now();
+  const active = rounds.find(r => !r.hit && r.col===idx && now < r.deadline+150);
+  if(active){
+    active.hit=true;
+    combo++; maxCombo=Math.max(maxCombo,combo);
+    score+=100+combo*2;
+    feedback.push({x:idx*columnWidth+columnWidth/2,y:canvas.height*0.4,text:'+100',good:true,t:now});
+  } else {
+    combo=0; score-=50;
+    feedback.push({x:idx*columnWidth+columnWidth/2,y:canvas.height*0.4,text:'MISS',good:false,t:now});
+  }
+}
+
+function update(){
+  const now = performance.now();
+  if(now-lastSpawn>spawnInterval){spawn();lastSpawn=now;}
+  let elapsed=(now-startTime)/1000;
+  spawnInterval = Math.max(300,1200 - elapsed*40);
+
+  rounds.forEach(r=>{
+    if(!r.hit && now>r.deadline){r.hit=true;combo=0;score-=80;feedback.push({x:r.col*columnWidth+columnWidth/2,y:canvas.height*0.4,text:'-',good:false,t:now});}
+  });
+  rounds = rounds.filter(r=>now-r.spawn<2000);
+  feedback = feedback.filter(f=>now-f.t<800);
+  if(score<0) gameOver=true;
+}
+
+function draw(){
+  const g=ctx.createLinearGradient(0,0,0,canvas.height);
+  g.addColorStop(0,'#081b2f'); g.addColorStop(1,'#020915');
+  ctx.fillStyle=g; ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle='#bfe8ff'; ctx.font='18px monospace';
+  const elapsed=Math.floor((performance.now()-startTime)/1000);
+  ctx.fillText('Time: '+elapsed+'s',20,30);
+  ctx.fillText('Score: '+score,180,30);
+  ctx.fillText('Combo: '+combo,340,30);
+
+  for(let c=0;c<cols;c++){
+    const x=c*columnWidth+lanePadding/2;
+    const w=columnWidth-lanePadding;
+    ctx.fillStyle='rgba(255,255,255,0.03)';
+    ctx.fillRect(x,80,w,canvas.height-140);
+    ctx.fillStyle='#9fb8d9'; ctx.textAlign='center';
+    ctx.fillText(keys[c].replace('Key',''),x+w/2,canvas.height-40);
+  }
+
+  const now=performance.now();
+  rounds.forEach(r=>{
+    const age=now-r.spawn;
+    const life=Math.max(0,Math.min(1,1-(age/(r.deadline-r.spawn))));
+    const cx=r.col*columnWidth+columnWidth/2;
+    const cy=canvas.height*0.45;
+    ctx.beginPath();
+    const tileW=150*(0.5+0.5*life);
+    const tileH=70*(0.5+0.5*life);
+    ctx.fillStyle=r.hit?'rgba(80,250,180,0.9)':'rgba(100,180,255,0.9)';
+    roundRect(ctx,cx-tileW/2,cy-tileH/2,tileW,tileH,10);ctx.fill();
+    ctx.beginPath();ctx.lineWidth=5;ctx.strokeStyle='rgba(255,255,255,0.15)';
+    ctx.arc(cx,cy,Math.max(tileW,tileH)/1.5,-Math.PI/2,-Math.PI/2+Math.PI*2*life);ctx.stroke();
+  });
+
+  feedback.forEach(f=>{
+    const p=(now-f.t)/800; ctx.globalAlpha=1-p; ctx.fillStyle=f.good?'#bfffbf':'#ffbfbf';
+    ctx.font='36px monospace'; ctx.textAlign='center'; ctx.fillText(f.text,f.x,f.y-p*60); ctx.globalAlpha=1;
+  });
+
+  if(gameOver){
+    ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle='#ffd3d3';ctx.font='48px monospace';ctx.textAlign='center';
+    ctx.fillText('GAME OVER',canvas.width/2,canvas.height/2-20);
+    ctx.font='20px monospace';ctx.fillStyle='#bfe8ff';ctx.fillText('Press R to Restart',canvas.width/2,canvas.height/2+40);
+  }
+}
+
+function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+
+function loop(){if(!gameOver)update();draw();requestAnimationFrame(loop);}
+window.addEventListener('keydown',e=>{if(e.code==='KeyR')restart();else handleInput(e.code);});
+function restart(){rounds=[];score=0;combo=0;maxCombo=0;gameOver=false;spawnInterval=1200;startTime=performance.now();lastSpawn=0;feedback=[];}
+loop();
+</script>
+</body>
+</html>
